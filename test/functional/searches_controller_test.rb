@@ -37,8 +37,6 @@ class SearchesControllerTest < ActionController::TestCase
 
     should respond_with :success
     should render_template :show
-    should assign_to(:gems) { [@sinatra, @sinatra_redux] }
-    should assign_to(:exact_match) { @sinatra }
     should "see sinatra on the page in the results" do
       assert page.has_content?(@sinatra.name)
       assert page.has_selector?("a[href='#{rubygem_path(@sinatra)}']")
@@ -47,5 +45,19 @@ class SearchesControllerTest < ActionController::TestCase
       assert ! page.has_content?(@brando.name)
       assert ! page.has_selector?("a[href='#{rubygem_path(@brando)}']")
     end
+    should "display 'gems' in pagination summary" do
+      assert page.has_content?("all 2 gems")
+    end
+  end
+
+  context 'on GET to show with search parameters with a single exact match' do
+    setup do
+      @sinatra = create(:rubygem, :name => "sinatra")
+      create(:version, :rubygem => @sinatra)
+      get :show, :query => "sinatra"
+    end
+
+    should respond_with :redirect
+    should redirect_to('the gem') { rubygem_path(@sinatra) }
   end
 end

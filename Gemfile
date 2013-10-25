@@ -1,14 +1,13 @@
 source 'https://rubygems.org'
 # ruby '1.9.3'
 
-gem 'rails', '~> 3.2'
+gem 'rails', '~> 3.2.15'
 
-gem 'airbrake'
 gem 'builder'
 gem 'bluepill'
 gem 'dynamic_form'
 gem 'excon'
-gem 'fog'
+gem 'fog', '>= 1.12.1'
 gem 'gchartrb', :require => 'google_chart'
 gem 'gravtastic'
 gem 'high_voltage'
@@ -38,15 +37,12 @@ gem 'yajl-ruby', :require => 'yajl'
 #gem 'heroku_asset_cacher', :git => "git@github.com/qrush/heroku_asset_cacher"
 
 group :development do
-  gem 'capistrano-ext'
   gem 'rails-erd'
-  gem 'rvm'
-  gem 'rvm-capistrano'
   gem 'pry'
 end
 
 group :test do
-  gem 'capybara', '~> 1.1'
+  gem 'capybara'
   gem 'cucumber-rails', :require => false
   gem 'database_cleaner'
   gem 'factory_girl_rails'
@@ -55,7 +51,6 @@ group :test do
   gem 'rack-test', :require => 'rack/test'
   gem 'rr'
   gem 'shoulda', :require => false
-  #gem 'test-unit', :require => 'test/unit'
   gem 'timecop'
   gem 'webmock'
 end
@@ -63,7 +58,7 @@ end
 # For some reason, including these gems in the maintenance environment enables
 # maintenance mode
 group :development, :test, :staging, :production do
-  gem 'clearance'
+  gem 'clearance', '~> 1.0.1'
   gem 'daemons'
   gem 'delayed_job'
   gem 'delayed_job_active_record'

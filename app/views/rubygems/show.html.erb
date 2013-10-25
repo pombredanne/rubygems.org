@@ -25,8 +25,10 @@
     <div class="meta">
       <div class="admin">
         <%= link_to t('edit'), edit_rubygem_path(@rubygem), :id => "edit" if @rubygem.owned_by?(current_user) %>
+        <%= gittip_link(@rubygem) if @rubygem.gittip_enabled? %>
         <%= download_link(@latest_version) %>
         <%= documentation_link(@latest_version, @rubygem.linkset) %>
+        <%= badge_link(@rubygem) %>
         <%= subscribe_link(@rubygem) if @latest_version.indexed %>
         <%= unsubscribe_link(@rubygem) %>
         <%= atom_link(@rubygem) %>
@@ -100,6 +102,18 @@
 
       <%= render :partial => "rubygems/dependencies", :locals => { :dependencies => @latest_version.dependencies.runtime } %>
       <%= render :partial => "rubygems/dependencies", :locals => { :dependencies => @latest_version.dependencies.development } %>
+
+      <% if @latest_version.requirements.present? %>
+        <div class="dependencies requirements_dependencies">
+          <h5><%= t '.requirements_header' %></h5>
+		  <ol>
+		    <% Array(@latest_version.requirements).each do |requirement| %>
+			  <li><%= requirement %></li>
+		    <% end %>
+	  	  </ol>
+        </div>
+      <% end %>
+
     </div>
   </div>
 <% end %>

@@ -22,6 +22,16 @@ class RubygemTest < ActiveSupport::TestCase
     should_not allow_value("\342\230\203").for(:name)
     should_not allow_value("2.2").for(:name)
 
+    context "that has an invalid name already persisted" do
+      setup do
+        subject.update_column(:name, "_")
+      end
+
+      should "consider the gem valid" do
+        assert subject.valid?
+      end
+    end
+
     should "reorder versions with platforms properly" do
       version3_ruby  = create(:version, :rubygem => @rubygem, :number => "3.0.0", :platform => "ruby")
       version3_mswin = create(:version, :rubygem => @rubygem, :number => "3.0.0", :platform => "mswin")
@@ -139,6 +149,47 @@ class RubygemTest < ActiveSupport::TestCase
         versions = @rubygem.public_versions_with_extra_version(@first_version)
         assert_equal versions.count, versions.uniq.count
       end
+    end
+
+    should "update references in dependencies when destroyed" do
+      dependency = create(:dependency, :rubygem => @rubygem)
+
+      @rubygem.destroy
+
+      dependency.reload
+      assert_nil dependency.rubygem_id
+      assert_equal dependency.unresolved_name, @rubygem.name
+    end
+  end
+
+  context ".reverse_dependencies" do
+    setup do
+      @dep_rubygem = create(:rubygem)
+      @gem_one = create(:rubygem)
+      @gem_two = create(:rubygem)
+      @gem_three = create(:rubygem)
+      @gem_four = create(:rubygem)
+      @version_one_latest  = create(:version, :rubygem => @gem_one, :number => '0.2')
+      @version_one_earlier = create(:version, :rubygem => @gem_one, :number => '0.1')
+      @version_two_latest  = create(:version, :rubygem => @gem_two, :number => '1.0')
+      @version_two_earlier = create(:version, :rubygem => @gem_two, :number => '0.5')
+      @version_three = create(:version, :rubygem => @gem_three, :number => '1.7')
+      @version_four = create(:version, :rubygem => @gem_four, :number => '3.9')
+
+      @version_one_latest.dependencies << create(:dependency, :version => @version_one_latest, :rubygem => @dep_rubygem)
+      @version_two_earlier.dependencies << create(:dependency, :version => @version_two_earlier, :rubygem => @dep_rubygem)
+      @version_three.dependencies << create(:dependency, :version => @version_three, :rubygem => @dep_rubygem)
+    end
+
+    should "return all depended rubygems" do
+      gem_list = Rubygem.reverse_dependencies(@dep_rubygem.name)
+
+      assert_equal 3, gem_list.size
+
+      assert gem_list.include?(@gem_one)
+      assert gem_list.include?(@gem_two)
+      assert gem_list.include?(@gem_three)
+      assert ! gem_list.include?(@gem_four)
     end
   end
 
@@ -370,17 +421,21 @@ class RubygemTest < ActiveSupport::TestCase
 
     context "when yanking the last version of a gem with an owner" do
       setup do
-        @rubygem_with_version.yank!(@rubygem_with_version.versions.first)
+        @rubygem_with_version.versions.first.yank!
       end
 
-      should "no longer be owned" do
-        assert @rubygem_with_version.reload.unowned?
+      should "still be owned" do
+        assert @rubygem_with_version.owned_by?(@owner)
+      end
+
+      should "no longer be indexed" do
+        assert @rubygem_with_version.versions.indexed.count.zero?
       end
     end
 
     context "when yanking one of many versions of a gem" do
       setup do
-        @rubygem_with_versions.yank!(@rubygem_with_versions.versions.first)
+        @rubygem_with_versions.versions.first.yank!
       end
       should "remain owned" do
         assert !@rubygem_with_versions.reload.unowned?

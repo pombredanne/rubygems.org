@@ -1,11 +1,15 @@
 class Pusher
-  attr_reader :user, :spec, :message, :code, :rubygem, :body, :version, :version_id
+  attr_reader :user, :spec, :message, :code, :rubygem, :body, :version, :version_id, :size
+  attr_accessor :bundler_api_url
 
   def initialize(user, body, host_with_port=nil)
     @user = user
     @body = StringIO.new(body.read)
+    @size = @body.size
     @indexer = Indexer.new
     @host_with_port = host_with_port
+    @bundler_token = ENV['BUNDLER_TOKEN'] || "tokenmeaway"
+    @bundler_api_url = ENV['BUNDLER_API_URL']
   end
 
   def process
@@ -35,25 +39,45 @@ class Pusher
     end
 
     false
+  rescue Psych::WhitelistException => e
+    Rails.logger.info "Attempted YAML metadata exploit: #{e}"
+    notify("RubyGems.org cannot process this gem.\nThe metadata is invalid.\n#{e}", 422)
   rescue Gem::Package::FormatError
     notify("RubyGems.org cannot process this gem.\nPlease try rebuilding it" +
            " and installing it locally to make sure it's valid.", 422)
   rescue Exception => e
     notify("RubyGems.org cannot process this gem.\nPlease try rebuilding it" +
            " and installing it locally to make sure it's valid.\n" +
-           "Error:\n#{e.message}\n#{e.backtrace.join("\n")}", 422)
+           "Error:\n#{e.message}}", 422)
   end
 
   def find
-    @rubygem = Rubygem.find_or_initialize_by_name(spec.name)
-    @version = @rubygem.find_or_initialize_version_from_spec(spec)
+    name = spec.name.to_s
 
-    if @version.new_record?
-      true
-    else
-      notify("Repushing of gem versions is not allowed.\n" +
-             "Please use `gem yank` to remove bad gem releases.", 409)
+    @rubygem = Rubygem.name_is(name).first || Rubygem.new(:name => name)
+
+    unless @rubygem.new_record?
+      if @rubygem.find_version_from_spec(spec)
+        notify("Repushing of gem versions is not allowed.\n" +
+               "Please use `gem yank` to remove bad gem releases.", 409)
+
+        return false
+      end
+
+      if @rubygem.name != name and @rubygem.indexed_versions?
+        return notify("Unable to change case of gem name with indexed versions\n" +
+                      "Please yank all versions first", 409)
+      end
     end
+
+    # Update the name to reflect a valid case change
+    @rubygem.name = name
+
+    @version = @rubygem.versions.new number: spec.version.to_s,
+                                     platform: spec.original_platform.to_s,
+                                     size: size
+
+    true
   end
 
   # Overridden so we don't get megabytes of the raw data printing out
@@ -62,12 +86,36 @@ class Pusher
     "<Pusher #{attrs.join(' ')}>"
   end
 
+  def update_remote_bundler_api(to=RestClient)
+    return unless @bundler_api_url
+
+    json = {
+      "name"           => spec.name,
+      "version"        => spec.version.to_s,
+      "platform"       => spec.platform.to_s,
+      "prerelease"     => !!spec.version.prerelease?,
+      "rubygems_token" => @bundler_token
+    }.to_json
+
+    begin
+      timeout(5) do
+        to.post @bundler_api_url,
+                json,
+                :timeout        => 5,
+                :open_timeout   => 5,
+                'Content-Type'  => 'application/json'
+      end
+    rescue StandardError, Interrupt
+      false
+    end
+  end
   private
 
   def after_write
     @version_id = version.id
     Delayed::Job.enqueue Indexer.new, :priority => PRIORITIES[:push]
     enqueue_web_hook_jobs
+    update_remote_bundler_api
   end
 
   def notify(message, code)
@@ -77,8 +125,10 @@ class Pusher
   end
 
   def update
+    rubygem.disown if rubygem.versions.indexed.count.zero?
     rubygem.update_attributes_from_gem_specification!(version, spec)
-    rubygem.create_ownership(user) unless version.new_record?
+    rubygem.create_ownership(user)
+
     true
   rescue ActiveRecord::RecordInvalid, ActiveRecord::Rollback
     false

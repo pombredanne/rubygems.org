@@ -5,6 +5,14 @@ class Api::V1::VersionsControllerTest < ActionController::TestCase
     get :show, :id => rubygem.name, :format => format
   end
 
+  def get_latest(rubygem, format='json')
+    get :latest, :id => rubygem.name, :format => format
+  end
+
+  def get_reverse_dependencies(rubygem, options={ :format => 'json' })
+    get :reverse_dependencies, options.merge(:id => rubygem.name)
+  end
+
   def self.should_respond_to(format)
     context "with #{format.to_s.upcase}" do
       should "have a list of versions for the first gem" do
@@ -84,7 +92,7 @@ class Api::V1::VersionsControllerTest < ActionController::TestCase
 
   context "on GET to show for an unknown gem" do
     setup do
-      get :show, :id => "nonexistent_gem"
+      get :show, :id => "nonexistent_gem", :format => "json"
     end
 
     should "return a 404" do
@@ -126,4 +134,89 @@ class Api::V1::VersionsControllerTest < ActionController::TestCase
     end
   end
 
+  context "on GET to latest" do
+    setup do
+      @rubygem = create(:rubygem)
+      (1..3).each do |n|
+        create(:version, :rubygem => @rubygem, :number => "#{n}.0.0")
+      end
+    end
+
+    should "return latest version" do
+      get_latest @rubygem
+      assert_equal "3.0.0", MultiJson.load(@response.body)['version']
+    end
+  end
+
+  context "on GET to jsonp version of latest" do
+    setup do
+      @rubygem = create(:rubygem)
+      (1..3).each do |n|
+        create(:version, :rubygem => @rubygem, :number => "#{n}.0.0")
+      end
+    end
+
+    should "return latest version" do
+      get :latest, :id => @rubygem.name, :format => "js", :callback => "blah"
+      assert_equal "blah", @response.body.split("(",2).first
+    end
+  end
+
+  context "on GET to of latest for unknown gem" do
+    setup do
+      @rubygem = create(:rubygem)
+      (1..3).each do |n|
+        create(:version, :rubygem => @rubygem, :number => "#{n}.0.0")
+      end
+    end
+
+    should "return latest version" do
+      get :latest, :id => "blah", :format => "json"
+      assert_equal "unknown", MultiJson.load(@response.body)['version']
+    end
+  end
+
+  context "on GET to of latest for a gem with no versions" do
+    setup do
+      @rubygem = create(:rubygem)
+      v = create(:version, :rubygem => @rubygem, :number => "1.0.0")
+      v.yank!
+    end
+
+    should "return latest version" do
+      get :latest, :id => @rubygem.name, :format => "json"
+      assert_equal "unknown", MultiJson.load(@response.body)['version']
+    end
+  end
+
+  context "on GET to reverse_dependencies" do
+    setup do
+      @dep_rubygem = create(:rubygem)
+      @gem_one = create(:rubygem)
+      @gem_two = create(:rubygem)
+      @gem_three = create(:rubygem)
+      @version_one_latest  = create(:version, :rubygem => @gem_one, :number => '0.2', :full_name => "gem_one-0.2")
+      @version_one_earlier = create(:version, :rubygem => @gem_one, :number => '0.1', :full_name => "gem_one-0.1")
+      @version_two_latest  = create(:version, :rubygem => @gem_two, :number => '1.0', :full_name => "gem_two-1.0")
+      @version_two_earlier = create(:version, :rubygem => @gem_two, :number => '0.5', :full_name => "gem_two-0.5")
+      @version_three = create(:version, :rubygem => @gem_three, :number => '1.7', :full_name => "gem_three-1.7")
+
+      @version_one_latest.dependencies << create(:dependency, :version => @version_one_latest, :rubygem => @dep_rubygem)
+      @version_two_earlier.dependencies << create(:dependency, :version => @version_two_earlier, :rubygem => @dep_rubygem)
+      @version_three.dependencies << create(:dependency, :version => @version_three, :rubygem => @dep_rubygem)
+    end
+
+    should "return names of reverse dependencies" do
+      get_reverse_dependencies(@dep_rubygem, :format => "json")
+      ret_versions = MultiJson.load(@response.body)
+
+      assert_equal 3, ret_versions.size
+
+      assert ret_versions.include?(@version_one_latest.full_name)
+      assert ret_versions.include?(@version_two_earlier.full_name)
+      assert ret_versions.include?(@version_three.full_name)
+      assert ! ret_versions.include?(@version_one_earlier.full_name)
+      assert ! ret_versions.include?(@version_two_latest.full_name)
+    end
+  end
 end

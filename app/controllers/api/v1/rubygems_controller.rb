@@ -30,7 +30,7 @@ class Api::V1::RubygemsController < Api::BaseController
 
   def yank
     if @version.indexed?
-      @rubygem.yank!(@version)
+      @version.yank!
       render :text => "Successfully yanked gem: #{@version.to_title}"
     else
       render :text => "The version #{params[:version]} has already been yanked.", :status => :unprocessable_entity
@@ -44,6 +44,12 @@ class Api::V1::RubygemsController < Api::BaseController
     else
       render :text => "The version #{params[:version]} is already indexed.", :status => :unprocessable_entity
     end
+  end
+
+  def reverse_dependencies
+    rubygems = Rubygem.reverse_dependencies(params[:id])
+
+    respond_with(rubygems.map(&:name), :yamlish => true)
   end
 
   private

@@ -9,10 +9,11 @@ class Rubygem < ActiveRecord::Base
   has_many :web_hooks, :dependent => :destroy
   has_one :linkset, :dependent => :destroy
 
-  validate :ensure_name_format
+  validate :ensure_name_format, :if => :needs_name_validation?
   validates :name, :presence => true, :uniqueness => true
 
   after_create :update_unresolved
+  before_destroy :mark_unresolved
 
   def self.with_versions
     where("rubygems.id IN (SELECT rubygem_id FROM versions where versions.indexed IS true)")
@@ -26,7 +27,10 @@ class Rubygem < ActiveRecord::Base
   end
 
   def self.name_is(name)
-    where(:name => name.strip).limit(1)
+    sensitive = where(:name => name.strip).limit(1)
+    return sensitive unless sensitive.empty?
+
+    where("UPPER(name) = UPPER(?)", name.strip).limit(1)
   end
 
   def self.search(query)
@@ -43,6 +47,10 @@ class Rubygem < ActiveRecord::Base
 
   def self.name_starts_with(letter)
     where("upper(name) like upper(?)", "#{letter}%")
+  end
+
+  def self.reverse_dependencies(name)
+    find(Version.reverse_dependencies(name).pluck("versions.rubygem_id"))
   end
 
   def self.total_count
@@ -105,6 +113,10 @@ class Rubygem < ActiveRecord::Base
     ownerships.blank?
   end
 
+  def indexed_versions?
+    versions.indexed.count > 0
+  end
+
   def owned_by?(user)
     ownerships.find_by_user_id(user.id) if user
   end
@@ -130,6 +142,7 @@ class Rubygem < ActiveRecord::Base
       'platform'          => version.platform,
       'authors'           => version.authors,
       'info'              => version.info,
+      'licenses'          => version.licenses,
       'project_uri'       => "http://#{host_with_port}/gems/#{name}",
       'gem_uri'           => "http://#{host_with_port}/gems/#{version.full_name}.gem",
       'homepage_uri'      => linkset.try(:home),
@@ -223,11 +236,13 @@ class Rubygem < ActiveRecord::Base
     end
   end
 
-  def yank!(version)
-    version.yank!
-    if versions.indexed.count.zero?
-      ownerships.each(&:delete)
-    end
+  def disown
+    ownerships.each(&:delete)
+    ownerships.clear
+  end
+
+  def find_version_from_spec(spec)
+    self.versions.find_by_number_and_platform(spec.version.to_s, spec.original_platform.to_s)
   end
 
   def find_or_initialize_version_from_spec(spec)
@@ -245,6 +260,14 @@ class Rubygem < ActiveRecord::Base
     versions.by_earliest_built_at.limit(1).last.built_at
   end
 
+  def gittip_url
+    'https://www.gittip.com/on/rubygems/gem/' + name + '/'
+  end
+
+  def gittip_enabled?
+    owners.where('gittip_username is not null').count > 0
+  end
+
   private
 
   def ensure_name_format
@@ -257,11 +280,20 @@ class Rubygem < ActiveRecord::Base
     end
   end
 
+  def needs_name_validation?
+    new_record? || name_changed?
+  end
+
   def update_unresolved
     Dependency.where(:unresolved_name => name).each do |dependency|
       dependency.update_resolved(self)
     end
 
+    true
+  end
+
+  def mark_unresolved
+    Dependency.mark_unresolved_for(self)
     true
   end
 end

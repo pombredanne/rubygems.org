@@ -12,6 +12,7 @@ Gemcutter::Application.routes.draw do
       resource :api_key, :only => :show do
         put :reset
       end
+      resources :profiles, :only => :show
       resources :downloads, :only => :index do
         get :top, :on => :collection
         get :all, :on => :collection
@@ -26,6 +27,16 @@ Gemcutter::Application.routes.draw do
         # resources :versions, :only => :show, :format => true do
         get 'versions/:id.:format', :to => 'versions#show', :as => 'version'
         resources :versions, :only => :show do
+          member do
+            # In Rails 3.1, the following line can be replaced with:
+            # get :reverse_dependencies, :format => true
+            get 'reverse_dependencies.:format', :to => 'versions#reverse_dependencies', :as => 'reverse_dependencies'
+          end
+
+          member do
+            get 'latest.json', :to => 'versions#latest', :as => 'latest'
+          end
+
           # In Rails 3.1, the next TWO lines can be replaced with:
           # resources :downloads, :only => :show, :controller => 'versions/downloads', :format => true do
           get 'downloads.:format', :to => 'versions/downloads#index', :as => 'downloads'
@@ -42,6 +53,9 @@ Gemcutter::Application.routes.draw do
       resources :dependencies, :only => :index
 
       resources :rubygems, :path => 'gems', :only => [:create, :show, :index], :id => Patterns::LAZY_ROUTE_PATTERN, :format => /json|xml|yaml/ do
+        member do
+          get :reverse_dependencies
+        end
         collection do
           delete :yank
           put :unyank
@@ -119,7 +133,9 @@ Gemcutter::Application.routes.draw do
   ################################################################################
   # Clearance Overrides
 
-  resource :session, :only => [:new, :create]
+  resource :session, :only => [:create, :destroy]
+
+  match 'sign_out' => 'sessions#destroy', :via => :delete, :as => 'sign_out'
 
   resources :passwords, :only => [:new, :create]
 

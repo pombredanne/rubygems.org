@@ -8,12 +8,18 @@ class Version < ActiveRecord::Base
   after_save       :reorder_versions
 
   serialize :licenses
+  serialize :requirements
 
   validates :number,   :format => {:with => /\A#{Gem::Version::VERSION_PATTERN}\z/}
   validates :platform, :format => {:with => Rubygem::NAME_PATTERN}
 
   validate :platform_and_number_are_unique, :on => :create
   validate :authors_format, :on => :create
+
+  def self.reverse_dependencies(name)
+    joins({ dependencies: :rubygem }).
+      where(rubygems: { name: name })
+  end
 
   def self.owned_by(user)
     where(:rubygem_id => user.rubygem_ids)
@@ -134,6 +140,18 @@ class Version < ActiveRecord::Base
     !indexed
   end
 
+  def size
+    read_attribute(:size) || 'N/A'
+  end
+
+  def byte_size
+    read_attribute(:size)
+  end
+
+  def byte_size=(bs)
+    write_attribute :size, bs.to_i
+  end
+
   def info
     [ description, summary, "This rubygem does not have a description or summary." ].detect(&:present?)
   end
@@ -144,6 +162,7 @@ class Version < ActiveRecord::Base
       :description => spec.description,
       :summary     => spec.summary,
       :licenses    => spec.licenses,
+      :requirements    => spec.requirements,
       :built_at    => spec.date,
       :indexed     => true
     )
@@ -186,7 +205,8 @@ class Version < ActiveRecord::Base
       'summary'         => summary,
       'platform'        => platform,
       'prerelease'      => prerelease,
-      'licenses'        => licenses
+      'licenses'        => licenses,
+      'requirements'    => requirements
     }
   end
 
@@ -234,7 +254,7 @@ class Version < ActiveRecord::Base
 
   def self.to_rows(scope)
     sql = select("rubygems.name, number, platform").
-            indexed.send(scope).
+            indexed.public_send(scope).
             from("rubygems, versions").
             where("rubygems.id = versions.rubygem_id").
             order("rubygems.name asc, position desc").to_sql

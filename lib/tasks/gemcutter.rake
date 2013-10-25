@@ -18,7 +18,7 @@ namespace :gemcutter do
         puts "Processing #{path}"
         cutter = Pusher.new(nil, File.open(path))
 
-        cutter.pull_spec and cutter.find and cutter.save
+        cutter.process
       end
     end
   end

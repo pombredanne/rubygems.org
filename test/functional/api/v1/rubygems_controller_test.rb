@@ -10,7 +10,6 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
   end
 
   def self.should_respond_to_show(format, &block)
-    should assign_to(:rubygem) { @rubygem }
     should respond_with :success
     should "return a hash" do
       response = yield(@response.body)
@@ -78,7 +77,6 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
         get :show, :id => @rubygem.to_param, :format => "json"
       end
 
-      should assign_to(:rubygem) { @rubygem }
       should respond_with :not_found
       should "say not be found" do
         assert_match /does not exist/, @response.body
@@ -129,7 +127,6 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
         get :index, :format => format
       end
 
-      should assign_to(:rubygems) { [@rubygem] }
       should respond_with :success
       should "return a hash" do
         assert_not_nil yield(@response.body)
@@ -261,10 +258,9 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
           delete :yank, :gem_name => @rubygem.to_param, :version => @v1.number
         end
         should respond_with :success
-        should "keep the gem, deindex, remove owner" do
+        should "keep the gem, deindex, keep owner" do
           assert_equal 1, @rubygem.versions.count
           assert @rubygem.versions.indexed.count.zero?
-          assert @rubygem.ownerships.count.zero?
         end
       end
 
@@ -417,6 +413,38 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
           assert_equal "This rubygem could not be found.", @response.body
         end
       end
+    end
+  end
+
+  context "on GET to reverse_dependencies" do
+    setup do
+      @dep_rubygem = create(:rubygem)
+      @gem_one = create(:rubygem)
+      @gem_two = create(:rubygem)
+      @gem_three = create(:rubygem)
+      @gem_four = create(:rubygem)
+      @version_one_latest  = create(:version, :rubygem => @gem_one, :number => '0.2')
+      @version_one_earlier = create(:version, :rubygem => @gem_one, :number => '0.1')
+      @version_two_latest  = create(:version, :rubygem => @gem_two, :number => '1.0')
+      @version_two_earlier = create(:version, :rubygem => @gem_two, :number => '0.5')
+      @version_three = create(:version, :rubygem => @gem_three, :number => '1.7')
+      @version_four = create(:version, :rubygem => @gem_four, :number => '3.9')
+
+      @version_one_latest.dependencies << create(:dependency, :version => @version_one_latest, :rubygem => @dep_rubygem)
+      @version_two_earlier.dependencies << create(:dependency, :version => @version_two_earlier, :rubygem => @dep_rubygem)
+      @version_three.dependencies << create(:dependency, :version => @version_three, :rubygem => @dep_rubygem)
+    end
+
+    should "return names of reverse dependencies" do
+      get :reverse_dependencies, :id => @dep_rubygem.to_param, :format => "json"
+      gems = MultiJson.load(@response.body)
+
+      assert_equal 3, gems.size
+
+      assert gems.include?(@gem_one.name)
+      assert gems.include?(@gem_two.name)
+      assert gems.include?(@gem_three.name)
+      assert ! gems.include?(@gem_four.name)
     end
   end
 end

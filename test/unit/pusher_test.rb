@@ -35,6 +35,10 @@ class PusherTest < ActiveSupport::TestCase
       assert_equal @user, @cutter.user
     end
 
+    should "initialize size from the gem" do
+      assert_equal @gem.size, @cutter.size
+    end
+
     context "processing incoming gems" do
       should "work normally when things go well" do
         mock(@cutter).pull_spec { true }
@@ -80,19 +84,80 @@ class PusherTest < ActiveSupport::TestCase
       assert_equal @cutter.code, 422
     end
 
-    context "finding rubygem" do
-      should "initialize new gem if one does not exist" do
+    should "not be able to pull spec with metadata containing bad ruby objects" do
+      @gem = gem_file("exploit.gem")
+      @cutter = Pusher.new(@user, @gem)
+      @cutter.pull_spec
+      assert_nil @cutter.spec
+      assert_match %r{RubyGems\.org cannot process this gem}, @cutter.message
+      assert_match %r{The metadata is invalid.}, @cutter.message
+      assert_match %r{ActionController::Routing::RouteSet::NamedRouteCollection}, @cutter.message
+      assert_equal @cutter.code, 422
+    end
+
+    should "not be able to pull spec with metadata containing bad ruby symbols" do
+      ["1.0.0", "2.0.0", "3.0.0", "4.0.0"].each do |version|
+        @gem = gem_file("dos-#{version}.gem")
+        @cutter = Pusher.new(@user, @gem)
+        @cutter.pull_spec
+        assert_nil @cutter.spec
+        assert_include @cutter.message, %{RubyGems.org cannot process this gem}
+        assert_include @cutter.message, %{The metadata is invalid}
+        assert_include @cutter.message, %{Forbidden symbol in YAML}
+        assert_include @cutter.message, %{badsymbol}
+        assert_equal @cutter.code, 422
+      end
+    end
+
+    should "post info to the remote bundler API" do
+      @cutter.pull_spec
+
+      stub(@cutter.spec).platform { Gem::Platform.new("x86-java1.6") }
+
+      @cutter.bundler_api_url = "http://test.com"
+
+      obj = Object.new
+      post_data = nil
+
+      stub(obj).post { |*x| post_data = x }
+
+      @cutter.update_remote_bundler_api obj
+
+      url, payload, options = post_data
+
+      params = MultiJson.load payload
+
+      assert_equal "test",  params["name"]
+      assert_equal "0.0.0", params["version"]
+      assert_equal "x86-java-1.6", params["platform"]
+      assert_equal false,   params["prerelease"]
+    end
+
+    context "initialize new gem with find if one does not exist" do
+      setup do
         spec = "spec"
         stub(spec).name { "some name" }
         stub(spec).version { "1.3.3.7" }
         stub(spec).original_platform { "ruby" }
         stub(@cutter).spec { spec }
+        stub(@cutter).size { 5 }
         @cutter.find
-
-        assert_not_nil @cutter.rubygem
-        assert_not_nil @cutter.version
       end
 
+      should "set rubygem" do
+        assert_equal 'some name', @cutter.rubygem.name
+      end
+
+      should "set version" do
+        assert_equal '1.3.3.7',  @cutter.version.number
+      end
+
+      should "set gem version size" do
+        assert_equal 5, @cutter.version.size
+      end
+    end
+
+    context "finding an existing gem" do
       should "bring up existing gem with matching spec" do
         @rubygem = create(:rubygem)
         spec = "spec"
@@ -104,6 +169,39 @@ class PusherTest < ActiveSupport::TestCase
 
         assert_equal @rubygem, @cutter.rubygem
         assert_not_nil @cutter.version
+      end
+
+      should "error out when changing case with usuable versions" do
+        @rubygem = create(:rubygem)
+        create(:version, :rubygem => @rubygem)
+
+        assert_not_equal @rubygem.name, @rubygem.name.upcase
+
+        spec = "spec"
+        stub(spec).name { @rubygem.name.upcase }
+        stub(spec).version { "1.3.3.7" }
+        stub(spec).original_platform { "ruby" }
+        stub(@cutter).spec { spec }
+        assert !@cutter.find
+
+        assert_match /Unable to change case/, @cutter.message
+      end
+
+      should "update the DB to reflect the case in the spec" do
+        @rubygem = create(:rubygem)
+        assert_not_equal @rubygem.name, @rubygem.name.upcase
+
+        spec = "spec"
+        stub(spec).name { @rubygem.name.upcase }
+        stub(spec).version { "1.3.3.7" }
+        stub(spec).original_platform { "ruby" }
+        stub(@cutter).spec { spec }
+        @cutter.find
+
+        @cutter.rubygem.save
+        @rubygem.reload
+
+        assert_equal @rubygem.name, @rubygem.name.upcase
       end
     end
 
@@ -139,6 +237,33 @@ class PusherTest < ActiveSupport::TestCase
           create(:version, :rubygem => @rubygem, :number => '0.1.1', :indexed => false)
           assert @cutter.authorize
         end
+      end
+    end
+
+    context "successfully saving a gemcutter" do
+      setup do
+        @rubygem = create(:rubygem)
+        stub(@cutter).rubygem { @rubygem }
+        create(:version, :rubygem => @rubygem, :number => '0.1.1')
+        stub(@cutter).version { @rubygem.versions[0] }
+        stub(@rubygem).update_attributes_from_gem_specification!
+        any_instance_of(Indexer) {|i| stub(i).write_gem }
+        @cutter.save
+      end
+
+      should "update rubygem attributes" do
+        assert_received(@rubygem) do |rubygem|
+            rubygem.update_attributes_from_gem_specification!(@cutter.version,
+                                                              @cutter.spec)
+        end
+      end
+
+      should "set gem file size" do
+        assert_equal @gem.size, @cutter.size
+      end
+
+      should "set success code" do
+        assert_equal 200, @cutter.code
       end
     end
   end

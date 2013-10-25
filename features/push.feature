@@ -6,13 +6,14 @@ Feature: Push Gems
   Scenario: User pushes new gem and sees metadata
     Given I am signed up as "email@person.com"
     And I have a gem "RGem" with version "1.2.3" and the following attributes:
-      | authors  | description  | license |
-      | John Doe | The best gem | MIT     |
+      | authors  | description  | license | requirements |
+      | John Doe | The best gem | MIT     | Opencv       |
     And I have an API key for "email@person.com/password"
     When I push the gem "RGem-1.2.3.gem" with my API key
     And I visit the gem page for "RGem"
     Then I should see "RGem"
     And I should see "1.2.3"
+    And I should see "(3 KB)"
     And I should see "John Doe"
     And I should see "The best gem"
     And I should see "MIT"
@@ -68,19 +69,23 @@ Feature: Push Gems
     When I push the gem "badurl-1.0.0.gem" with my API key
     Then I should see "Home does not appear to be a valid URL"
 
-  Scenario: User pushes gem with bad name
-    Given I am signed up as "email@person.com"
-    And I have an API key for "email@person.com/password"
-    And I have a bad gem "true" with version "1.0.0"
-    When I push the gem "true-1.0.0.gem" with my API key
-    Then I should see "Name must be a String"
-
   Scenario: User pushes gem with bad authors
     Given I am signed up as "email@person.com"
     And I have an API key for "email@person.com/password"
     And I have a gem "badauthors" with version "1.0.0" and authors "[3]"
     When I push the gem "badauthors-1.0.0.gem" with my API key
     Then I should see "Authors must be an Array of Strings"
+
+  Scenario: User pushes gem with a runtime dependency
+    Given I am signed up as "email@person.com"
+    And I have an API key for "email@person.com/password"
+    And I have a gem "knowndeps" with version "1.0.0" and runtime dependency "knowngem"
+    And a rubygem exists with name "knowngem" and version "0.0.0"
+    When I push the gem "knowndeps-1.0.0.gem" with my API key
+    And I visit the gem page for "knowndeps"
+    Then I should see "knowndeps"
+    And I should see "1.0.0"
+    And I should see "knowngem" as a runtime dependency
 
   Scenario: User pushes gem with unknown runtime dependency
     Given I am signed up as "email@person.com"
@@ -90,6 +95,7 @@ Feature: Push Gems
     And I visit the gem page for "unkdeps"
     Then I should see "unkdeps"
     And I should see "1.0.0"
+    And I should see "unknown" as a runtime dependency
 
   @wip
   Scenario: User pushes gem with missing :rubygems_version, :specification_version, :name, :version, :date, :summary, :require_paths

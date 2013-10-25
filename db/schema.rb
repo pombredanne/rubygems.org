@@ -11,7 +11,7 @@
 #
 # It's strongly recommended to check this file into your version control system.
 
-ActiveRecord::Schema.define(:version => 20121124000000) do
+ActiveRecord::Schema.define(:version => 20130829225823) do
 
   create_table "announcements", :force => true do |t|
     t.text     "body"
@@ -111,6 +111,7 @@ ActiveRecord::Schema.define(:version => 20121124000000) do
     t.datetime "updated_at"
     t.boolean  "email_reset"
     t.string   "handle"
+    t.string   "gittip_username"
   end
 
   add_index "users", ["email"], :name => "index_users_on_email"
@@ -144,7 +145,9 @@ ActiveRecord::Schema.define(:version => 20121124000000) do
     t.integer  "position"
     t.boolean  "latest"
     t.string   "full_name"
+    t.integer  "size"
     t.string   "licenses"
+    t.text     "requirements"
   end
 
   add_index "versions", ["built_at"], :name => "index_versions_on_built_at"

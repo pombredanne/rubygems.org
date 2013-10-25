@@ -14,7 +14,7 @@ module NavigationHelpers
     when /the sign up page/
       new_user_path
     when /the sign in page/
-      new_session_path
+      sign_in_path
     when /the password reset request page/
       new_password_path
     when /the dashboard/
@@ -31,7 +31,7 @@ module NavigationHelpers
         path_components = $1.split(/\s+/)
         self.send(path_components.push('path').join('_').to_sym)
       rescue NoMethodError, ArgumentError
-        raise "Can't find mapping from \"#{page_name}\" to a path.\n" +
+        raise "Can't find mapping from #{page_name.dump} to a path.\n" +
           "Now, go and add a mapping in #{__FILE__}"
       end
     end

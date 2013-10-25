@@ -11,7 +11,7 @@ class VersionTest < ActiveSupport::TestCase
 
     should "only have relevant API fields" do
       json = @version.as_json
-      assert_equal %w[number built_at summary description authors platform prerelease downloads_count licenses].map(&:to_s).sort, json.keys.sort
+      assert_equal %w[number built_at summary description authors platform prerelease downloads_count licenses requirements].map(&:to_s).sort, json.keys.sort
       assert_equal @version.authors, json["authors"]
       assert_equal @version.built_at, json["built_at"]
       assert_equal @version.description, json["description"]
@@ -21,6 +21,7 @@ class VersionTest < ActiveSupport::TestCase
       assert_equal @version.prerelease, json["prerelease"]
       assert_equal @version.summary, json["summary"]
       assert_equal @version.licenses, json["licenses"]
+      assert_equal @version.requirements, json["requirements"]
     end
   end
 
@@ -31,7 +32,7 @@ class VersionTest < ActiveSupport::TestCase
 
     should "only have relevant API fields" do
       xml = Nokogiri.parse(@version.to_xml)
-      assert_equal %w[number built-at summary description authors platform prerelease downloads-count licenses].map(&:to_s).sort, xml.root.children.map{|a| a.name}.reject{|t| t == "text"}.sort
+      assert_equal %w[number built-at summary description authors platform prerelease downloads-count licenses requirements].map(&:to_s).sort, xml.root.children.map{|a| a.name}.reject{|t| t == "text"}.sort
       assert_equal @version.authors, xml.at_css("authors").content
       assert_equal @version.built_at.to_i, xml.at_css("built-at").content.to_time.to_i
       assert_equal @version.description, xml.at_css("description").content
@@ -41,6 +42,7 @@ class VersionTest < ActiveSupport::TestCase
       assert_equal @version.prerelease.to_s, xml.at_css("prerelease").content
       assert_equal @version.summary.to_s, xml.at_css("summary").content
       assert_equal @version.licenses, xml.at_css("licenses").content
+      assert_equal @version.requirements, xml.at_css("requirements").content
     end
   end
 
@@ -57,6 +59,37 @@ class VersionTest < ActiveSupport::TestCase
       assert_equal @most_recent, Version.most_recent
     end
   end
+
+  context ".reverse_dependencies" do
+    setup do
+      @dep_rubygem = create(:rubygem)
+      @gem_one = create(:rubygem)
+      @gem_two = create(:rubygem)
+      @gem_three = create(:rubygem)
+      @version_one_latest  = create(:version, :rubygem => @gem_one, :number => '0.2')
+      @version_one_earlier = create(:version, :rubygem => @gem_one, :number => '0.1')
+      @version_two_latest  = create(:version, :rubygem => @gem_two, :number => '1.0')
+      @version_two_earlier = create(:version, :rubygem => @gem_two, :number => '0.5')
+      @version_three = create(:version, :rubygem => @gem_three, :number => '1.7')
+
+      @version_one_latest.dependencies << create(:dependency, :version => @version_one_latest, :rubygem => @dep_rubygem)
+      @version_two_earlier.dependencies << create(:dependency, :version => @version_two_earlier, :rubygem => @dep_rubygem)
+      @version_three.dependencies << create(:dependency, :version => @version_three, :rubygem => @dep_rubygem)
+    end
+
+    should "return all depended gem versions" do
+      version_list = Version.reverse_dependencies(@dep_rubygem.name)
+
+      assert_equal 3, version_list.size
+
+      assert version_list.include?(@version_one_latest)
+      assert version_list.include?(@version_two_earlier)
+      assert version_list.include?(@version_three)
+      assert ! version_list.include?(@version_one_earlier)
+      assert ! version_list.include?(@version_two_latest)
+    end
+  end
+
 
   context "updated gems" do
     setup do
@@ -262,6 +295,11 @@ class VersionTest < ActiveSupport::TestCase
       @version.description = nil
       @version.summary = nil
       assert_equal "This rubygem does not have a description or summary.", @version.info
+    end
+
+    should "give 'N/A' for size when size not available" do
+      @version.size = nil
+      assert_equal 'N/A', @version.size
     end
 
     context "when yanked" do
